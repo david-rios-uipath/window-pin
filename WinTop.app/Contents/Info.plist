@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>WinTop</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.tony.wintop</string>
+    <key>CFBundleName</key>
+    <string>WinTop</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSAccessibilityUsageDescription</key>
+    <string>WinTop needs Accessibility to pin windows on top.</string>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>WinTop needs Screen Recording to mirror the pinned window.</string>
+</dict>
+</plist>

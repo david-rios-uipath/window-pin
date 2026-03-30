@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V8
+.Trashes
+
+# Build artifacts — the compiled binary inside .app is not tracked
+WinTop.app/Contents/MacOS/WinTop
+
+# Xcode (if ever migrated)
+*.xcodeproj/
+*.xcworkspace/
+DerivedData/
+build/
+*.o
+*.d
+
+# Swift Package Manager
+.build/
+.swiftpm/
