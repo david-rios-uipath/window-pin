@@ -187,11 +187,15 @@ struct PinsView: View {
                         .frame(maxWidth: .infinity, minHeight: 160)
                 }
                 section("Pinned", model.pinned) { item in
-                    PinCard(item: item, primary: CardAction("Bring to front", icon: "bring-to-front") { model.focus(item) },
-                            secondary: CardAction("Unpin", icon: "pin-off") { model.unpin(item) })
+                    PinCard(item: item, tap: { model.focus(item) }, actions: [
+                        CardAction("Unpin", icon: "pin-off", prominent: true) { model.unpin(item) },
+                        CardAction("Bring to front", icon: "bring-to-front") { model.focus(item) },
+                    ])
                 }
                 section("Recently pinned", model.recent) { item in
-                    PinCard(item: item, primary: CardAction("Pin", icon: "pin") { model.repin(item) }, secondary: nil)
+                    PinCard(item: item, tap: { model.repin(item) }, actions: [
+                        CardAction("Pin", icon: "pin", prominent: true) { model.repin(item) },
+                    ])
                 }
             }
             .padding(16)
@@ -213,11 +217,15 @@ struct PinsView: View {
     }
 }
 
-struct CardAction {
+struct CardAction: Identifiable {
     let title: String
-    var icon: String? = nil   // lucide svg name
+    let icon: String?   // lucide svg name
+    let prominent: Bool
     let run: () -> Void
-    init(_ title: String, icon: String? = nil, run: @escaping () -> Void) { self.title = title; self.icon = icon; self.run = run }
+    var id: String { title }
+    init(_ title: String, icon: String? = nil, prominent: Bool = false, run: @escaping () -> Void) {
+        self.title = title; self.icon = icon; self.prominent = prominent; self.run = run
+    }
 
     var label: some View {
         HStack(spacing: 4) {
@@ -225,12 +233,21 @@ struct CardAction {
             Text(title)
         }
     }
+
+    // Stacked buttons share one width; prominent = filled, others = bordered
+    @ViewBuilder var button: some View {
+        if prominent {
+            Button(action: run) { label.frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent)
+        } else {
+            Button(action: run) { label.frame(maxWidth: .infinity) }.buttonStyle(.bordered)
+        }
+    }
 }
 
 struct PinCard: View {
     let item: PinItem
-    let primary: CardAction
-    let secondary: CardAction?
+    let tap: () -> Void
+    let actions: [CardAction]
     @State private var hover = false
 
     var body: some View {
@@ -243,11 +260,11 @@ struct PinCard: View {
                     Image(systemName: "macwindow").font(.largeTitle).foregroundStyle(.tertiary)
                 }
                 if hover {
-                    HStack(spacing: 8) {
-                        Button(action: primary.run) { primary.label }
-                        if let s = secondary { Button(action: s.run) { s.label } }
+                    VStack(spacing: 6) {
+                        ForEach(actions) { $0.button }
                     }
-                    .buttonStyle(.borderedProminent).controlSize(.small)
+                    .controlSize(.small)
+                    .fixedSize()
                 }
             }
             .aspectRatio(16/10, contentMode: .fit)
@@ -264,10 +281,9 @@ struct PinCard: View {
         }
         .contentShape(Rectangle())   // whole card is the hover/click target, including gaps
         .onHover { hover = $0 }
-        .onTapGesture(perform: primary.run)
+        .onTapGesture(perform: tap)
         .contextMenu {
-            Button(action: primary.run) { primary.label }
-            if let s = secondary { Button(action: s.run) { s.label } }
+            ForEach(actions) { a in Button(action: a.run) { a.label } }
         }
     }
 }
