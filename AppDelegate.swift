@@ -89,7 +89,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(pins)
         menu.addItem(NSMenuItem.separator())
         let settings = NSMenu()
-        let badge = NSMenuItem(title: "Show pin badge", action: #selector(toggleBadge), keyEquivalent: "")
+        let badge = NSMenuItem(title: "Show badge on pinned windows", action: #selector(toggleBadge), keyEquivalent: "")
         badge.target = self
         badge.state = Settings.showBadge ? .on : .off
         settings.addItem(badge)
