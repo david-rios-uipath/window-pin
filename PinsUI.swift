@@ -248,6 +248,7 @@ struct PinCard: View {
                 }
             }
         }
+        .contentShape(Rectangle())   // whole card is the hover/click target, including gaps
         .onHover { hover = $0 }
         .onTapGesture(perform: primary.1)
         .contextMenu {
