@@ -6,8 +6,8 @@
 .Trashes
 
 # Build artifacts — the compiled binary inside .app is not tracked
-WinTop.app/Contents/MacOS/
-WinTop.app/Contents/Resources/
+WindowPin.app/Contents/MacOS/
+WindowPin.app/Contents/Resources/
 
 # Xcode (if ever migrated)
 *.xcodeproj/
@@ -20,4 +20,4 @@ build/
 # Swift Package Manager
 .build/
 .swiftpm/
-WinTop.app/Contents/_CodeSignature/
+WindowPin.app/Contents/_CodeSignature/

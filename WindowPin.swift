@@ -144,7 +144,7 @@ class MirrorPanel {
         capture.onError = { [weak self] in
             guard let self = self else { return }
             self.stop()
-            WinTopManager.shared.unpinWindow(windowID: self.scWindow.windowID)
+            WindowPinManager.shared.unpinWindow(windowID: self.scWindow.windowID)
         }
     }
 
@@ -272,7 +272,7 @@ class MirrorPanel {
     private func checkAlive() {
         let exists = CGWindowListCopyWindowInfo([.optionIncludingWindow], scWindow.windowID) as? [[String: Any]]
         if exists?.isEmpty ?? true {
-            WinTopManager.shared.unpinWindow(windowID: scWindow.windowID)
+            WindowPinManager.shared.unpinWindow(windowID: scWindow.windowID)
         }
     }
 
@@ -295,8 +295,8 @@ class ClickView: NSView {
 
 // MARK: - Window Manager
 
-class WinTopManager {
-    static let shared = WinTopManager()
+class WindowPinManager {
+    static let shared = WindowPinManager()
     var mirrors: [MirrorPanel] = []
 
     func pinFrontmost() {
@@ -448,7 +448,7 @@ private func installHotkeys() {
         (0x20, UInt32(optionKey), 2),   // Option+U = unpin
     ]
     var sig: OSType = 0
-    for c in "WTOP".utf8 { sig = (sig << 8) | OSType(c) }
+    for c in "WPIN".utf8 { sig = (sig << 8) | OSType(c) }
 
     for (keyCode, modifiers, hotID) in keys {
         let hkID = EventHotKeyID(signature: sig, id: hotID)
@@ -464,8 +464,8 @@ private func installHotkeys() {
         GetEventParameter(event, UInt32(kEventParamDirectObject), UInt32(typeEventHotKeyID),
                           nil, MemoryLayout<EventHotKeyID>.size, nil, &hkID)
         DispatchQueue.main.async {
-            if hkID.id == 1 { WinTopManager.shared.pinFrontmost() }
-            else { WinTopManager.shared.unpinLast() }
+            if hkID.id == 1 { WindowPinManager.shared.pinFrontmost() }
+            else { WindowPinManager.shared.unpinLast() }
         }
         return noErr
     }, 1, &spec, nil, nil)
@@ -497,7 +497,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
         ) { notif in
             guard let app = notif.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-            WinTopManager.shared.mirrors.forEach { $0.setPassThrough($0.targetPID == app.processIdentifier) }
+            WindowPinManager.shared.mirrors.forEach { $0.setPassThrough($0.targetPID == app.processIdentifier) }
         }
 
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -505,13 +505,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         ) { notif in
             if let app = notif.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
                 // Auto-unpin any mirrors whose target app just closed
-                let toRemove = WinTopManager.shared.mirrors.filter {
+                let toRemove = WindowPinManager.shared.mirrors.filter {
                     $0.scWindow.owningApplication?.bundleIdentifier == app.bundleIdentifier
                 }
-                toRemove.forEach { WinTopManager.shared.unpinWindow(windowID: $0.scWindow.windowID) }
+                toRemove.forEach { WindowPinManager.shared.unpinWindow(windowID: $0.scWindow.windowID) }
             }
         }
-        print("[OK] WinTop started. ⌥P = pin, ⌥U = unpin.")
+        print("[OK] WindowPin started. ⌥P = pin, ⌥U = unpin.")
     }
 
     func setupMenuBar() {
@@ -529,18 +529,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             menu.addItem(item)
         }
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Quit WinTop", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: "Quit WindowPin", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem?.menu = menu
     }
 
-    // Menu click makes WinTop frontmost; wait for menu to close and focus to return
+    // Menu click makes WindowPin frontmost; wait for menu to close and focus to return
     @objc func pinFromMenu() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { WinTopManager.shared.pinFrontmost() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { WindowPinManager.shared.pinFrontmost() }
     }
-    @objc func unpinFromMenu() { WinTopManager.shared.unpinLast() }
+    @objc func unpinFromMenu() { WindowPinManager.shared.unpinLast() }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
-        if item.action == #selector(unpinFromMenu) { return !WinTopManager.shared.mirrors.isEmpty }
+        if item.action == #selector(unpinFromMenu) { return !WindowPinManager.shared.mirrors.isEmpty }
         return true
     }
 }

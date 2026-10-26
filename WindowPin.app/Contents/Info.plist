@@ -3,18 +3,20 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>WinTop</string>
+    <string>WindowPin</string>
     <key>CFBundleIdentifier</key>
-    <string>com.tony.wintop</string>
+    <string>com.davidrios.windowpin</string>
     <key>CFBundleName</key>
-    <string>WinTop</string>
+    <string>WindowPin</string>
     <key>CFBundleVersion</key>
     <string>1.0</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSAccessibilityUsageDescription</key>
-    <string>WinTop needs Accessibility to pin windows on top.</string>
+    <string>WindowPin needs Accessibility to pin windows on top.</string>
     <key>NSScreenCaptureUsageDescription</key>
-    <string>WinTop needs Screen Recording to mirror the pinned window.</string>
+    <string>WindowPin needs Screen Recording to mirror the pinned window.</string>
 </dict>
 </plist>
