@@ -277,10 +277,20 @@ class MirrorPanel {
     }
 
     var targetPID: pid_t? { scWindow.owningApplication.map { pid_t($0.processID) } }
+    var appName: String { scWindow.owningApplication?.applicationName ?? "?" }
+    var bundleID: String? { scWindow.owningApplication?.bundleIdentifier }
+
+    // AX title is live; SCWindow.title is a snapshot from pin time
+    var liveTitle: String {
+        var ref: CFTypeRef?
+        if let w = axWin, AXUIElementCopyAttributeValue(w, kAXTitleAttribute as CFString, &ref) == .success,
+           let t = ref as? String, !t.isEmpty { return t }
+        return scWindow.title.flatMap { $0.isEmpty ? nil : $0 } ?? appName
+    }
 
     func setPassThrough(_ on: Bool) { panel.ignoresMouseEvents = on }
 
-    private func focusRealWindow() {
+    func focusRealWindow() {
         guard let pid = targetPID, let app = NSRunningApplication(processIdentifier: pid) else { return }
         app.activate()
         if let w = axWin { AXUIElementPerformAction(w, kAXRaiseAction as CFString) }
@@ -309,41 +319,46 @@ class WindowPinManager {
             print("[WARN] Cannot find SC window"); return
         }
 
-        // Don't pin the same window twice
+        pin(scWindow)
+    }
+
+    func pin(_ scWindow: SCWindow) {
         if mirrors.contains(where: { $0.scWindow.windowID == scWindow.windowID }) {
             print("[WARN] Already pinned"); return
         }
-
         let m = MirrorPanel(scWindow: scWindow)
         mirrors.append(m)
         Task { await m.start() }
+        PinStore.shared.recordPin(m)
 
-        let name = scWindow.owningApplication?.applicationName ?? "?"
-        print("[OK] 📌 Pinned: \(name) (wid: \(scWindow.windowID)) total: \(mirrors.count)")
-        showHUD(icon: "pin", name)
+        print("[OK] 📌 Pinned: \(m.appName) (wid: \(scWindow.windowID)) total: \(mirrors.count)")
+        showHUD(icon: "pin", m.appName)
+    }
+
+    private func remove(_ m: MirrorPanel) {
+        PinStore.shared.recordUnpin(m)
+        m.stop()
     }
 
     // Unpin a specific window (called when its target app closes)
     func unpinWindow(windowID: CGWindowID) {
         guard let idx = mirrors.firstIndex(where: { $0.scWindow.windowID == windowID }) else { return }
         let m = mirrors.remove(at: idx)
-        let name = m.scWindow.owningApplication?.applicationName ?? "?"
-        m.stop()
-        print("[OK] 📍 Auto-unpinned: \(name)")
+        remove(m)
+        print("[OK] 📍 Unpinned: \(m.appName)")
     }
 
     // Unpin most recently pinned
     func unpinLast() {
         guard let m = mirrors.last else { return }
-        let name = m.scWindow.owningApplication?.applicationName ?? "?"
         mirrors.removeLast()
-        m.stop()
-        print("[OK] 📍 Unpinned: \(name)")
-        showHUD(icon: "pin-off", name)
+        remove(m)
+        print("[OK] 📍 Unpinned: \(m.appName)")
+        showHUD(icon: "pin-off", m.appName)
     }
 
     func unpinAll() {
-        mirrors.forEach { $0.stop() }
+        mirrors.forEach { remove($0) }
         mirrors.removeAll()
         print("[OK] 📍 Unpinned all")
         showHUD(icon: "pin-off", "All unpinned")
@@ -404,7 +419,7 @@ class WindowPinManager {
     }
 
 
-    private func showHUD(icon: String, _ text: String) {
+    func showHUD(icon: String, _ text: String) {
         let label = NSTextField(labelWithString: text)
         label.font = NSFont.systemFont(ofSize: 18, weight: .medium)
         label.textColor = .white
@@ -529,6 +544,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             menu.addItem(item)
         }
         menu.addItem(NSMenuItem.separator())
+        let pins = NSMenuItem(title: "Show Pins…", action: #selector(showPins), keyEquivalent: "")
+        pins.target = self
+        menu.addItem(pins)
+        menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit WindowPin", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem?.menu = menu
     }
@@ -538,17 +557,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { WindowPinManager.shared.pinFrontmost() }
     }
     @objc func unpinFromMenu() { WindowPinManager.shared.unpinLast() }
+    @objc func showPins() { PinsWindow.shared.show() }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         if item.action == #selector(unpinFromMenu) { return !WindowPinManager.shared.mirrors.isEmpty }
         return true
     }
 }
-
-// MARK: - Main
-setvbuf(stdout, nil, _IOLBF, 0)   // line-buffer so logs show when piped to a file
-let app = NSApplication.shared
-app.setActivationPolicy(.accessory)
-let delegate = AppDelegate()
-app.delegate = delegate
-app.run()
