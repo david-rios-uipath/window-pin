@@ -309,7 +309,8 @@ class WindowPinManager {
     static let shared = WindowPinManager()
     var mirrors: [MirrorPanel] = []
 
-    func pinFrontmost() {
+    // ⌥P toggles: pin the frontmost window, or unpin it if already pinned
+    func togglePinFrontmost() {
         guard let frontApp = NSWorkspace.shared.frontmostApplication,
               frontApp.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
             print("[WARN] No frontmost app"); return
@@ -319,7 +320,11 @@ class WindowPinManager {
             print("[WARN] Cannot find SC window"); return
         }
 
-        pin(scWindow)
+        if mirrors.contains(where: { $0.scWindow.windowID == scWindow.windowID }) {
+            unpinWindow(windowID: scWindow.windowID)
+        } else {
+            pin(scWindow)
+        }
     }
 
     func pin(_ scWindow: SCWindow) {
@@ -344,14 +349,6 @@ class WindowPinManager {
     func unpinWindow(windowID: CGWindowID) {
         guard let idx = mirrors.firstIndex(where: { $0.scWindow.windowID == windowID }) else { return }
         let m = mirrors.remove(at: idx)
-        remove(m)
-        print("[OK] 📍 Unpinned: \(m.appName)")
-    }
-
-    // Unpin most recently pinned
-    func unpinLast() {
-        guard let m = mirrors.last else { return }
-        mirrors.removeLast()
         remove(m)
         print("[OK] 📍 Unpinned: \(m.appName)")
         showHUD(icon: "pin-off", m.appName)
@@ -459,8 +456,7 @@ private var hotKeyRefs: [EventHotKeyRef?] = []
 
 private func installHotkeys() {
     let keys: [(UInt32, UInt32, UInt32)] = [
-        (0x23, UInt32(optionKey), 1),   // Option+P = pin
-        (0x20, UInt32(optionKey), 2),   // Option+U = unpin
+        (0x23, UInt32(optionKey), 1),   // Option+P = pin / unpin
     ]
     var sig: OSType = 0
     for c in "WPIN".utf8 { sig = (sig << 8) | OSType(c) }
@@ -479,8 +475,7 @@ private func installHotkeys() {
         GetEventParameter(event, UInt32(kEventParamDirectObject), UInt32(typeEventHotKeyID),
                           nil, MemoryLayout<EventHotKeyID>.size, nil, &hkID)
         DispatchQueue.main.async {
-            if hkID.id == 1 { WindowPinManager.shared.pinFrontmost() }
-            else { WindowPinManager.shared.unpinLast() }
+            if hkID.id == 1 { WindowPinManager.shared.togglePinFrontmost() }
         }
         return noErr
     }, 1, &spec, nil, nil)
@@ -488,7 +483,7 @@ private func installHotkeys() {
 
 // MARK: - App Delegate
 
-class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem?
 
     func applicationDidFinishLaunching(_ n: Notification) {
@@ -526,7 +521,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 toRemove.forEach { WindowPinManager.shared.unpinWindow(windowID: $0.scWindow.windowID) }
             }
         }
-        print("[OK] WindowPin started. ⌥P = pin, ⌥U = unpin.")
+        print("[OK] WindowPin started. ⌥P = pin / unpin.")
     }
 
     func setupMenuBar() {
@@ -537,12 +532,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             statusItem?.button?.title = "📌"
         }
         let menu = NSMenu()
-        for (title, sel) in [("⌥P  Pin frontmost window", #selector(pinFromMenu)),
-                             ("⌥U  Unpin", #selector(unpinFromMenu))] {
-            let item = NSMenuItem(title: title, action: sel, keyEquivalent: "")
-            item.target = self
-            menu.addItem(item)
-        }
+        let toggle = NSMenuItem(title: "⌥P  Pin / unpin frontmost window", action: #selector(pinFromMenu), keyEquivalent: "")
+        toggle.target = self
+        menu.addItem(toggle)
         menu.addItem(NSMenuItem.separator())
         let pins = NSMenuItem(title: "Show Pins…", action: #selector(showPins), keyEquivalent: "")
         pins.target = self
@@ -554,13 +546,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     // Menu click makes WindowPin frontmost; wait for menu to close and focus to return
     @objc func pinFromMenu() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { WindowPinManager.shared.pinFrontmost() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { WindowPinManager.shared.togglePinFrontmost() }
     }
-    @objc func unpinFromMenu() { WindowPinManager.shared.unpinLast() }
     @objc func showPins() { PinsWindow.shared.show() }
-
-    func validateMenuItem(_ item: NSMenuItem) -> Bool {
-        if item.action == #selector(unpinFromMenu) { return !WindowPinManager.shared.mirrors.isEmpty }
-        return true
-    }
 }
