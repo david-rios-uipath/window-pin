@@ -4,16 +4,17 @@ cd "$(dirname "$0")"
 
 APP="WindowPin.app"
 BINARY="$APP/Contents/MacOS/WindowPin"
-SOURCE="WindowPin.swift"
+SOURCES=(*.swift)
 # Self-signed code-signing identity; falls back to ad-hoc. See README "Stable code signing".
 SIGN_IDENTITY="${SIGN_IDENTITY:-WindowPin Dev}"
 
-if [ ! -f "$BINARY" ] || [ "$SOURCE" -nt "$BINARY" ]; then
+if [ ! -f "$BINARY" ] || [ -n "$(find "${SOURCES[@]}" -newer "$BINARY")" ]; then
     echo "🔨 Compiling..."
     mkdir -p "$(dirname "$BINARY")"
-    swiftc "$SOURCE" \
+    swiftc "${SOURCES[@]}" \
       -o "$BINARY" \
       -framework Cocoa \
+      -framework SwiftUI \
       -framework Carbon \
       -framework ScreenCaptureKit \
       -framework AVFoundation \
