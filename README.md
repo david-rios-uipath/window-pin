@@ -25,7 +25,7 @@ WindowPin uses **ScreenCaptureKit** to create a floating live mirror of the targ
 
 ## Features
 
-- **⌥ + P** pins the frontmost window, **⌥ + U** unpins the most recent one. Both also available from the menu bar menu.
+- **⌥ + P** pins the frontmost window. Press it again on a pinned window to unpin. Also available from the menu bar menu.
 - Pin **multiple windows** at once
 - Mirror follows the window when moved or resized, with capture resolution matching the display it is on
 - **Click the mirror** while another app is active to bring the real window back to front
@@ -81,7 +81,7 @@ System Settings → General → Login Items → **+** → `/Applications/WindowP
 2. Press **⌥ + P**. A floating mirror appears and a short toast confirms the pin
 3. Switch to other apps. The mirror stays visible
 4. Click the mirror to jump back to the real window
-5. Press **⌥ + U** to unpin (repeat for multiple pinned windows)
+5. Press **⌥ + P** again on the pinned window to unpin it
 
 ## Known Limitations
 
