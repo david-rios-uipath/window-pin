@@ -120,7 +120,7 @@ Key choices:
 - [Mac-Window-Pin](https://github.com/iconoclas/Mac-Window-Pin) by icos. The original project this fork is based on.
 - [Topit](https://github.com/lihaoyun6/Topit). Same ScreenCaptureKit mirror approach; upstream's inspiration and a polished, signed alternative if you want an app rather than a build-it-yourself tool.
 - [AlwaysOnTop](https://github.com/AirBalloonDev/AlwaysOnTop). Hotkey and window manager patterns.
-- [Lucide](https://lucide.dev). The `pin`, `pin-off`, and `grid-2x2` icons used in the menu bar, HUD toasts, and app icon. ISC license.
+- [Lucide](https://lucide.dev). The `pin`, `pin-off`, `bring-to-front`, and `grid-2x2` icons used in the menu bar, HUD toasts, Pins window, and app icon. ISC license.
 
 ## License
 

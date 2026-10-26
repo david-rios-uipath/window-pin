@@ -22,7 +22,7 @@ if [ ! -f "$BINARY" ] || [ -n "$(find "${SOURCES[@]}" -newer "$BINARY")" ]; then
 fi
 
 mkdir -p "$APP/Contents/Resources"
-cp pin.svg pin-off.svg AppIcon.icns "$APP/Contents/Resources/"
+cp pin.svg pin-off.svg bring-to-front.svg AppIcon.icns "$APP/Contents/Resources/"
 
 echo "✍️  Signing..."
 if security find-identity -v -p codesigning | grep -q "\"$SIGN_IDENTITY\""; then
