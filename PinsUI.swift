@@ -157,7 +157,7 @@ final class PinsModel: ObservableObject {
     func focus(_ item: PinItem) { WindowPinManager.shared.mirrors.first { $0.scWindow.windowID == item.id }?.focusRealWindow() }
     func repin(_ item: PinItem) {
         guard let w = item.scWindow else {
-            WindowPinManager.shared.showHUD(icon: "pin-off", "Window no longer exists"); return
+            showHUD(icon: "pin-off", "Window no longer exists"); return
         }
         WindowPinManager.shared.pin(w)
         reload()
