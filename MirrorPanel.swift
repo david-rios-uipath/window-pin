@@ -57,6 +57,21 @@ class MirrorPanel {
         videoLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
         view.layer?.addSublayer(videoLayer)
 
+        // Pin badge, top-right; autoresizing mask keeps it anchored through setFrame
+        let badge = NSView(frame: NSRect(x: view.bounds.maxX - 28, y: view.bounds.maxY - 28, width: 20, height: 20))
+        badge.wantsLayer = true
+        badge.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.6).cgColor
+        badge.layer?.cornerRadius = 10
+        badge.layer?.zPosition = 1   // above the video layer
+        badge.autoresizingMask = [.minXMargin, .minYMargin]
+        if let img = lucideIcon("pin", size: 12) {
+            let iv = NSImageView(image: img)
+            iv.contentTintColor = .white
+            iv.frame = badge.bounds.insetBy(dx: 4, dy: 4)
+            badge.addSubview(iv)
+        }
+        view.addSubview(badge)
+
         panel.contentView = view
 
         capture.onError = { [weak self] in
