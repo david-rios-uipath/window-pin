@@ -233,14 +233,24 @@ struct CardAction: Identifiable {
             Text(title)
         }
     }
+}
 
-    // Stacked buttons share one width; prominent = filled, others = bordered
-    @ViewBuilder var button: some View {
-        if prominent {
-            Button(action: run) { label.frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent)
-        } else {
-            Button(action: run) { label.frame(maxWidth: .infinity) }.buttonStyle(.bordered)
+// Stacked buttons share one width; prominent = filled, others = bordered.
+// AppKit buttons have no hover highlight, so brighten on hover ourselves.
+struct ActionButton: View {
+    let action: CardAction
+    @State private var hover = false
+
+    var body: some View {
+        Group {
+            if action.prominent {
+                Button(action: action.run) { action.label.frame(maxWidth: .infinity) }.buttonStyle(.borderedProminent)
+            } else {
+                Button(action: action.run) { action.label.frame(maxWidth: .infinity) }.buttonStyle(.bordered)
+            }
         }
+        .brightness(hover ? 0.12 : 0)
+        .onHover { hover = $0 }
     }
 }
 
@@ -262,7 +272,7 @@ struct PinCard: View {
                 if hover {
                     Color.black.opacity(0.4)   // dim thumbnail so the bordered button reads on light windows
                     VStack(spacing: 6) {
-                        ForEach(actions) { $0.button }
+                        ForEach(actions) { ActionButton(action: $0) }
                     }
                     .controlSize(.small)
                     .fixedSize()
