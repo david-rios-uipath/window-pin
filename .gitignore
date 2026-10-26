@@ -6,7 +6,8 @@
 .Trashes
 
 # Build artifacts — the compiled binary inside .app is not tracked
-WinTop.app/Contents/MacOS/WinTop
+WinTop.app/Contents/MacOS/
+WinTop.app/Contents/Resources/
 
 # Xcode (if ever migrated)
 *.xcodeproj/
@@ -19,3 +20,4 @@ build/
 # Swift Package Manager
 .build/
 .swiftpm/
+WinTop.app/Contents/_CodeSignature/
