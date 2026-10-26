@@ -2,6 +2,8 @@
 
 [中文文档](./README_CN.md) | English
 
+> Fork of [iconoclas/Mac-Window-Pin](https://github.com/iconoclas/Mac-Window-Pin) by icos. All credit for the original ScreenCaptureKit mirror design goes to the upstream author. This fork adds clickable menu items, click-to-refocus, per-display capture scale, drag/resize sync improvements, and Lucide icons.
+
 
 A lightweight macOS utility that keeps any window visually on top — without stealing focus.
 
@@ -22,8 +24,10 @@ WinTop uses **ScreenCaptureKit** to create a floating mirror of the target windo
 
 ## Features
 
-- **⌥ + P** — Pin the current frontmost window
-- **⌥ + U** — Unpin the most recently pinned window
+- **⌥ + P** — Pin the current frontmost window (also in the menu bar menu)
+- **⌥ + U** — Unpin the most recently pinned window (also in the menu bar menu)
+- **Click the mirror** when another app is active to bring the real window back to front
+- Capture resolution follows the display the window is on
 - Pin **multiple windows** simultaneously
 - Mirror follows the window when moved or resized
 - No focus stealing — your typing is never interrupted
@@ -45,13 +49,22 @@ WinTop uses **ScreenCaptureKit** to create a floating mirror of the target windo
 ### Build from source (recommended)
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/WinTop.git
-cd WinTop
-chmod +x build.sh
+git clone https://github.com/david-rios-uipath/window-pin.git
+cd window-pin
 ./build.sh
 ```
 
-`build.sh` compiles the Swift source, signs the app with an ad-hoc signature, and launches WinTop. The app will appear in your menu bar as 📌.
+`build.sh` compiles the Swift source, signs the app, copies it to `/Applications`, and launches it. The app appears in your menu bar as a pin icon.
+
+#### Stable code signing (recommended)
+
+macOS ties Accessibility and Screen Recording grants to the app's code signature. The default ad-hoc signature changes on every rebuild, so you would be re-prompted after each build. To avoid that, create a self-signed code-signing certificate once:
+
+1. Keychain Access → Certificate Assistant → Create a Certificate
+2. Name `WinTop Dev`, Identity Type **Self Signed Root**, Certificate Type **Code Signing**
+3. Double-click the new cert → Trust → Code Signing: **Always Trust**
+
+`build.sh` signs with `WinTop Dev` if it exists and falls back to ad-hoc otherwise.
 
 On first launch, macOS will ask for:
 1. **Accessibility access** — required to identify the frontmost window
@@ -75,7 +88,7 @@ Grant both in **System Settings → Privacy & Security**.
 |---|---|
 | ~1 frame drag lag | Mirror renders via SCStream capture pipeline (not direct compositing); inherent to the approach |
 | Requires Screen Recording permission | ScreenCaptureKit TCC requirement on macOS 14+ |
-| Mirror is read-only | The floating window is a live visual copy, not a true window proxy |
+| Mirror is read-only | The floating window is a live visual copy; clicking it refocuses the real window rather than interacting with the copy |
 | No minimize/maximize controls | By design — the mirror is a borderless overlay |
 
 ## Architecture
@@ -97,9 +110,12 @@ wintop.swift
 
 ## Inspired By
 
+- [Mac-Window-Pin](https://github.com/iconoclas/Mac-Window-Pin) — the original project this fork is based on
 - [Topit](https://github.com/lihaoyun6/Topit) — ScreenCaptureKit mirror approach
 - [AlwaysOnTop](https://github.com/AirBalloonDev/AlwaysOnTop) — hotkey and window manager patterns
 
 ## License
 
-MIT
+MIT — see [LICENSE](./LICENSE). Original work © icos (iconoclas); modifications © David Rios.
+
+Icons: [Lucide](https://lucide.dev) (ISC license).

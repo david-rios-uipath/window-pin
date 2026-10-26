@@ -7,19 +7,25 @@ import AVFoundation
 
 class CaptureManager: NSObject, SCStreamDelegate, SCStreamOutput {
     let videoLayer = AVSampleBufferDisplayLayer()
-    var staticLayer: CALayer?      // fallback: holds last rendered frame
     private var stream: SCStream?
     var capturing = false
     var onError: (() -> Void)?
 
-    func startCapture(window: SCWindow) async throws {
-        if stream != nil { return }
+    // Match display refresh rate (120 on ProMotion); SCStream only emits on change so idle cost is nil
+    private func makeConfig() -> SCStreamConfiguration {
         let config = SCStreamConfiguration()
         config.pixelFormat = kCVPixelFormatType_32BGRA
         config.colorSpaceName = CGColorSpace.sRGB
         config.showsCursor = false
         config.capturesAudio = false
-        config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
+        let fps = NSScreen.main?.maximumFramesPerSecond ?? 60
+        config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
+        return config
+    }
+
+    func startCapture(window: SCWindow) async throws {
+        if stream != nil { return }
+        let config = makeConfig()
 
         let filter = SCContentFilter(desktopIndependentWindow: window)
         if #available(macOS 14, *) {
@@ -45,12 +51,7 @@ class CaptureManager: NSObject, SCStreamDelegate, SCStreamOutput {
 
     func updateCaptureSize(width: Int, height: Int) {
         guard let s = stream else { return }
-        let config = SCStreamConfiguration()
-        config.pixelFormat = kCVPixelFormatType_32BGRA
-        config.colorSpaceName = CGColorSpace.sRGB
-        config.showsCursor = false
-        config.capturesAudio = false
-        config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
+        let config = makeConfig()
         config.width  = width
         config.height = height
         s.updateConfiguration(config) { err in
@@ -60,21 +61,9 @@ class CaptureManager: NSObject, SCStreamDelegate, SCStreamOutput {
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of outputType: SCStreamOutputType) {
         guard sampleBuffer.isValid, outputType == .screen else { return }
-        DispatchQueue.main.async {
-            self.videoLayer.enqueue(sampleBuffer)
-            // Update static fallback layer so there's always a last-known-good frame
-            if let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer),
-               let sl = self.staticLayer {
-                let ciImage = CIImage(cvPixelBuffer: imageBuffer)
-                let context = CIContext()
-                if let cgImage = context.createCGImage(ciImage, from: ciImage.extent) {
-                    CATransaction.begin()
-                    CATransaction.setDisableActions(true)
-                    sl.contents = cgImage
-                    CATransaction.commit()
-                }
-            }
-        }
+        // enqueue is thread-safe; skipping the main-queue hop saves up to a frame of latency.
+        // The layer keeps the last frame, so no static fallback layer is needed.
+        videoLayer.enqueue(sampleBuffer)
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
@@ -87,7 +76,18 @@ class CaptureManager: NSObject, SCStreamDelegate, SCStreamOutput {
     }
 }
 
+// MARK: - Icons
+
+func lucideIcon(_ name: String, size: CGFloat) -> NSImage? {
+    guard let path = Bundle.main.path(forResource: name, ofType: "svg"), let img = NSImage(contentsOfFile: path) else { return nil }
+    img.size = NSSize(width: size, height: size)
+    img.isTemplate = true
+    return img
+}
+
 // MARK: - Coordinate Transform
+
+extension NSRect { var area: CGFloat { isNull ? 0 : width * height } }
 
 func cgToNS(_ cgRect: CGRect) -> NSRect {
     guard let main = NSScreen.screens.first else { return cgRect }
@@ -103,7 +103,10 @@ class MirrorPanel {
     let capture = CaptureManager()
     var panel: NSPanel!
     private var axObserver: AXObserver?
+    private var axWin: AXUIElement?
     private var aliveTimer: Timer?    // low-freq timer just to detect window closed
+    private var lastScale: CGFloat = 0
+    private var resizeDebounce: DispatchWorkItem?
 
     init(scWindow: SCWindow) {
         self.scWindow = scWindow
@@ -121,24 +124,16 @@ class MirrorPanel {
         panel.isMovableByWindowBackground = false
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
-        // All mouse events pass through to the real window underneath
+        // Pass-through while target app is active; otherwise click raises real window
         panel.ignoresMouseEvents = true
 
-        let view = NSView(frame: NSRect(origin: .zero, size: nsFrame.size))
+        let view = ClickView(frame: NSRect(origin: .zero, size: nsFrame.size))
+        view.onClick = { [weak self] in self?.focusRealWindow() }
         view.wantsLayer = true
         // Clip to corner radius so no black bleed outside rounded corners
         view.layer?.cornerRadius = 10
         view.layer?.masksToBounds = true
 
-        // Static fallback layer — clear background, holds last good frame
-        let staticLayer = CALayer()
-        staticLayer.frame = view.bounds
-        staticLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
-        staticLayer.backgroundColor = NSColor.clear.cgColor
-        view.layer?.addSublayer(staticLayer)
-        capture.staticLayer = staticLayer
-
-        // Live video layer on top
         let videoLayer = capture.videoLayer
         videoLayer.frame = view.bounds
         videoLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
@@ -171,6 +166,7 @@ class MirrorPanel {
     }
 
     func stop() {
+        resizeDebounce?.cancel()
         aliveTimer?.invalidate()
         aliveTimer = nil
         if let obs = axObserver {
@@ -194,6 +190,7 @@ class MirrorPanel {
             print("[WARN] AXObserver: cannot find window element")
             return
         }
+        self.axWin = axWin
 
         typealias Callback = @convention(c) (AXObserver, AXUIElement, CFString, UnsafeMutableRawPointer?) -> Void
         let cb: Callback = { _, _, notification, ptr in
@@ -229,17 +226,21 @@ class MirrorPanel {
 
     // Called by AXObserver immediately when window moves or resizes
     func syncFrame() {
-        guard let info = CGWindowListCopyWindowInfo([.optionIncludingWindow], scWindow.windowID) as? [[String: Any]],
-              let first = info.first,
-              let bounds = first[kCGWindowBounds as String] as? [String: CGFloat] else { return }
-
-        let cgFrame = CGRect(x: bounds["X"] ?? 0, y: bounds["Y"] ?? 0,
-                             width: bounds["Width"] ?? 0, height: bounds["Height"] ?? 0)
+        guard let cgFrame = axFrame() ?? cgWindowFrame() else { return }
         let nsFrame = cgToNS(cgFrame)
 
-        if panel.frame.size != nsFrame.size {
-            let scale = NSScreen.main?.backingScaleFactor ?? 2.0
-            capture.updateCaptureSize(width: Int(nsFrame.width * scale), height: Int(nsFrame.height * scale))
+        // Scale of the display the window is mostly on; re-capture on size OR display change
+        let screen = NSScreen.screens.max { $0.frame.intersection(nsFrame).area < $1.frame.intersection(nsFrame).area }
+        let scale = screen?.backingScaleFactor ?? 2.0
+        if panel.frame.size != nsFrame.size || scale != lastScale {
+            lastScale = scale
+            // Layer stretches during the drag; reconfigure capture once notifications settle
+            resizeDebounce?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                self?.capture.updateCaptureSize(width: Int(nsFrame.width * scale), height: Int(nsFrame.height * scale))
+            }
+            resizeDebounce = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: work)
         }
         if panel.frame != nsFrame {
             CATransaction.begin()
@@ -247,6 +248,24 @@ class MirrorPanel {
             panel.setFrame(nsFrame, display: true)
             CATransaction.commit()
         }
+    }
+
+    // Position/size straight from the AX element: cheaper than CGWindowList, same coordinate space
+    private func axFrame() -> CGRect? {
+        guard let w = axWin else { return nil }
+        var posRef: CFTypeRef?, sizeRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(w, kAXPositionAttribute as CFString, &posRef) == .success,
+              AXUIElementCopyAttributeValue(w, kAXSizeAttribute as CFString, &sizeRef) == .success else { return nil }
+        var pos = CGPoint.zero, size = CGSize.zero
+        guard AXValueGetValue(posRef as! AXValue, .cgPoint, &pos),
+              AXValueGetValue(sizeRef as! AXValue, .cgSize, &size) else { return nil }
+        return CGRect(origin: pos, size: size)
+    }
+
+    private func cgWindowFrame() -> CGRect? {
+        guard let info = CGWindowListCopyWindowInfo([.optionIncludingWindow], scWindow.windowID) as? [[String: Any]],
+              let bounds = info.first?[kCGWindowBounds as String] as? [String: CGFloat] else { return nil }
+        return CGRect(x: bounds["X"] ?? 0, y: bounds["Y"] ?? 0, width: bounds["Width"] ?? 0, height: bounds["Height"] ?? 0)
     }
 
     // Low-frequency check just to detect window closed
@@ -257,11 +276,15 @@ class MirrorPanel {
         }
     }
 
-    private func activateRealWindow() {
-        if let bundleID = scWindow.owningApplication?.bundleIdentifier,
-           let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first {
-            app.activate()
-        }
+    var targetPID: pid_t? { scWindow.owningApplication.map { pid_t($0.processID) } }
+
+    func setPassThrough(_ on: Bool) { panel.ignoresMouseEvents = on }
+
+    private func focusRealWindow() {
+        guard let pid = targetPID, let app = NSRunningApplication(processIdentifier: pid) else { return }
+        app.activate()
+        if let w = axWin { AXUIElementPerformAction(w, kAXRaiseAction as CFString) }
+        setPassThrough(true)
     }
 }
 
@@ -297,7 +320,7 @@ class WinTopManager {
 
         let name = scWindow.owningApplication?.applicationName ?? "?"
         print("[OK] 📌 Pinned: \(name) (wid: \(scWindow.windowID)) total: \(mirrors.count)")
-        showHUD("📌 \(name)")
+        showHUD(icon: "pin", name)
     }
 
     // Unpin a specific window (called when its target app closes)
@@ -316,14 +339,14 @@ class WinTopManager {
         mirrors.removeLast()
         m.stop()
         print("[OK] 📍 Unpinned: \(name)")
-        showHUD("📍 \(name)")
+        showHUD(icon: "pin-off", name)
     }
 
     func unpinAll() {
         mirrors.forEach { $0.stop() }
         mirrors.removeAll()
         print("[OK] 📍 Unpinned all")
-        showHUD("📍 All unpinned")
+        showHUD(icon: "pin-off", "All unpinned")
     }
 
     private func findFrontmostSCWindow(pid: pid_t) -> SCWindow? {
@@ -381,8 +404,24 @@ class WinTopManager {
     }
 
 
-    private func showHUD(_ text: String) {
-        let w = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 220, height: 50),
+    private func showHUD(icon: String, _ text: String) {
+        let label = NSTextField(labelWithString: text)
+        label.font = NSFont.systemFont(ofSize: 18, weight: .medium)
+        label.textColor = .white
+
+        let stack = NSStackView(views: [label])
+        stack.orientation = .horizontal
+        stack.spacing = 10
+        stack.edgeInsets = NSEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
+        if let img = lucideIcon(icon, size: 22) {
+            let iv = NSImageView(image: img)
+            iv.contentTintColor = .white
+            stack.insertArrangedSubview(iv, at: 0)
+        }
+        stack.layoutSubtreeIfNeeded()
+        let size = stack.fittingSize
+
+        let w = NSPanel(contentRect: NSRect(origin: .zero, size: size),
                         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         w.level = .screenSaver
         w.backgroundColor = NSColor.black.withAlphaComponent(0.75)
@@ -391,14 +430,8 @@ class WinTopManager {
         w.center()
         w.contentView?.wantsLayer = true
         w.contentView?.layer?.cornerRadius = 12
-
-        let label = NSTextField(labelWithString: text)
-        label.font = NSFont.systemFont(ofSize: 18, weight: .medium)
-        label.textColor = .white
-        label.alignment = .center
-        label.frame = w.contentView!.bounds
-        label.autoresizingMask = [.width, .height]
-        w.contentView?.addSubview(label)
+        stack.frame = w.contentView!.bounds
+        w.contentView?.addSubview(stack)
         w.orderFrontRegardless()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { w.close() }
@@ -440,25 +473,31 @@ private func installHotkeys() {
 
 // MARK: - App Delegate
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var statusItem: NSStatusItem?
 
     func applicationDidFinishLaunching(_ n: Notification) {
-        let opts = [kAXTrustedCheckOptionPrompt.takeRetainedValue() as String: true] as CFDictionary
-        let trusted = AXIsProcessTrustedWithOptions(opts)
-        print("[DEBUG] Accessibility: \(trusted)")
+        // Check silently first; only prompt for permissions not yet granted
+        var axTrusted = AXIsProcessTrusted()
+        if !axTrusted {
+            let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+            axTrusted = AXIsProcessTrustedWithOptions(opts)
+        }
+        print("[DEBUG] Accessibility: \(axTrusted)")
+
+        var scGranted = CGPreflightScreenCaptureAccess()
+        if !scGranted { scGranted = CGRequestScreenCaptureAccess() }
+        print("[DEBUG] Screen Recording: \(scGranted)")
 
         setupMenuBar()
         installHotkeys()
 
-        // Proactively request ScreenCaptureKit permission on launch
-        // This triggers the TCC dialog if not yet granted
-        SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) { content, err in
-            if let err = err {
-                print("[DEBUG] SC permission check: \(err.localizedDescription)")
-            } else {
-                print("[DEBUG] SC permission: granted, \(content?.windows.count ?? 0) windows available")
-            }
+        // Mirror is click-through only while its own app is active
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { notif in
+            guard let app = notif.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            WinTopManager.shared.mirrors.forEach { $0.setPassThrough($0.targetPID == app.processIdentifier) }
         }
 
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -477,17 +516,37 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func setupMenuBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem?.button?.title = "📌"
+        if let img = lucideIcon("pin", size: 15) {
+            statusItem?.button?.image = img   // template: tints for light/dark menu bar
+        } else {
+            statusItem?.button?.title = "📌"
+        }
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "⌥P  Pin frontmost window", action: nil, keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "⌥U  Unpin", action: nil, keyEquivalent: ""))
+        for (title, sel) in [("⌥P  Pin frontmost window", #selector(pinFromMenu)),
+                             ("⌥U  Unpin", #selector(unpinFromMenu))] {
+            let item = NSMenuItem(title: title, action: sel, keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+        }
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit WinTop", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem?.menu = menu
     }
+
+    // Menu click makes WinTop frontmost; wait for menu to close and focus to return
+    @objc func pinFromMenu() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { WinTopManager.shared.pinFrontmost() }
+    }
+    @objc func unpinFromMenu() { WinTopManager.shared.unpinLast() }
+
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(unpinFromMenu) { return !WinTopManager.shared.mirrors.isEmpty }
+        return true
+    }
 }
 
 // MARK: - Main
+setvbuf(stdout, nil, _IOLBF, 0)   // line-buffer so logs show when piped to a file
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 let delegate = AppDelegate()
