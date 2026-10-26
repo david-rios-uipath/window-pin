@@ -88,6 +88,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         pins.target = self
         menu.addItem(pins)
         menu.addItem(NSMenuItem.separator())
+        let settings = NSMenu()
+        let badge = NSMenuItem(title: "Show pin badge", action: #selector(toggleBadge), keyEquivalent: "")
+        badge.target = self
+        badge.state = Settings.showBadge ? .on : .off
+        settings.addItem(badge)
+        let settingsItem = NSMenuItem(title: "Settings", action: nil, keyEquivalent: "")
+        settingsItem.submenu = settings
+        menu.addItem(settingsItem)
+        menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit WindowPin", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem?.menu = menu
     }
@@ -99,4 +108,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     @objc func showPins() { PinsWindow.shared.show() }
+    @objc func toggleBadge(_ item: NSMenuItem) {
+        Settings.showBadge.toggle()
+        item.state = Settings.showBadge ? .on : .off
+    }
 }

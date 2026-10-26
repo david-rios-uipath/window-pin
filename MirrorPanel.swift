@@ -25,6 +25,7 @@ class MirrorPanel {
     private var aliveTimer: Timer?    // low-freq timer just to detect window closed
     private var lastScale: CGFloat = 0
     private var resizeDebounce: DispatchWorkItem?
+    let badge = NSView()
 
     init(scWindow: SCWindow) {
         self.scWindow = scWindow
@@ -58,7 +59,7 @@ class MirrorPanel {
         view.layer?.addSublayer(videoLayer)
 
         // Pin badge, top-right; autoresizing mask keeps it anchored through setFrame
-        let badge = NSView(frame: NSRect(x: view.bounds.maxX - 28, y: view.bounds.maxY - 28, width: 20, height: 20))
+        badge.frame = NSRect(x: view.bounds.maxX - 28, y: view.bounds.maxY - 28, width: 20, height: 20)
         badge.wantsLayer = true
         badge.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.6).cgColor
         badge.layer?.cornerRadius = 10
@@ -70,6 +71,7 @@ class MirrorPanel {
             iv.frame = badge.bounds.insetBy(dx: 4, dy: 4)
             badge.addSubview(iv)
         }
+        badge.isHidden = !Settings.showBadge
         view.addSubview(badge)
 
         panel.contentView = view

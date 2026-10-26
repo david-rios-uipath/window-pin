@@ -1,5 +1,15 @@
 import Cocoa
 
+enum Settings {
+    static var showBadge: Bool {
+        get { UserDefaults.standard.object(forKey: "showBadge") as? Bool ?? true }
+        set {
+            UserDefaults.standard.set(newValue, forKey: "showBadge")
+            WindowPinManager.shared.mirrors.forEach { $0.badge.isHidden = !newValue }
+        }
+    }
+}
+
 func lucideIcon(_ name: String, size: CGFloat) -> NSImage? {
     guard let path = Bundle.main.path(forResource: name, ofType: "svg"), let img = NSImage(contentsOfFile: path) else { return nil }
     img.size = NSSize(width: size, height: size)
