@@ -187,7 +187,7 @@ struct PinsView: View {
                         .frame(maxWidth: .infinity, minHeight: 160)
                 }
                 section("Pinned", model.pinned) { item in
-                    PinCard(item: item, primary: CardAction("Bring to front") { model.focus(item) },
+                    PinCard(item: item, primary: CardAction("Bring to front", icon: "bring-to-front") { model.focus(item) },
                             secondary: CardAction("Unpin", icon: "pin-off") { model.unpin(item) })
                 }
                 section("Recently pinned", model.recent) { item in
