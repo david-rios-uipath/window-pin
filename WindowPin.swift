@@ -532,7 +532,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             statusItem?.button?.title = "📌"
         }
         let menu = NSMenu()
-        let toggle = NSMenuItem(title: "⌥P  Pin / unpin frontmost window", action: #selector(pinFromMenu), keyEquivalent: "")
+        let toggle = NSMenuItem(title: "Pin / unpin frontmost window", action: #selector(pinFromMenu), keyEquivalent: "p")
+        toggle.keyEquivalentModifierMask = .option   // renders ⌥P like Quit's ⌘Q; global hotkey is Carbon
         toggle.target = self
         menu.addItem(toggle)
         menu.addItem(NSMenuItem.separator())
