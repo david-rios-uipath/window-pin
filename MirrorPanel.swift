@@ -64,7 +64,6 @@ class MirrorPanel {
         badge.layer?.cornerRadius = 10
         badge.layer?.zPosition = 1   // above the video layer
         badge.autoresizingMask = [.minXMargin, .minYMargin]
-        badge.toolTip = "Pinned by WindowPin"   // only shows while another app is active (mirror is click-through otherwise)
         if let img = lucideIcon("pin", size: 12) {
             let iv = NSImageView(image: img)
             iv.contentTintColor = .white
