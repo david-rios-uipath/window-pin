@@ -142,8 +142,7 @@ class MirrorPanel {
         panel.contentView = view
 
         capture.onError = { [weak self] in
-            guard let self = self else { return }
-            self.stop()
+            guard let self = self, self.panel.isVisible else { return }   // hidden: checkAlive restarts later
             WindowPinManager.shared.unpinWindow(windowID: self.scWindow.windowID)
         }
     }
@@ -269,18 +268,41 @@ class MirrorPanel {
     }
 
     // Low-frequency check just to detect window closed
+    // Closed = AX element gone. Off the window server but AX alive = hidden tab / ⌘H:
+    // hide the mirror and bring it back (restarting capture if needed) when the window returns.
     private func checkAlive() {
-        let exists = CGWindowListCopyWindowInfo([.optionIncludingWindow], scWindow.windowID) as? [[String: Any]]
-        if exists?.isEmpty ?? true {
-            WindowPinManager.shared.unpinWindow(windowID: scWindow.windowID)
+        if let w = axWin {
+            var ref: CFTypeRef?
+            if AXUIElementCopyAttributeValue(w, kAXRoleAttribute as CFString, &ref) == .invalidUIElement {
+                WindowPinManager.shared.unpinWindow(windowID: scWindow.windowID); return
+            }
+        }
+        let onServer = !((CGWindowListCopyWindowInfo([.optionIncludingWindow], scWindow.windowID) as? [[String: Any]])?.isEmpty ?? true)
+        if !onServer {
+            if axWin == nil { WindowPinManager.shared.unpinWindow(windowID: scWindow.windowID); return }
+            if panel.isVisible { panel.orderOut(nil) }
+        } else if !panel.isVisible {
+            syncFrame()
+            panel.orderFront(nil)
+            if !capture.capturing { Task { try? await capture.startCapture(window: scWindow) } }
         }
     }
 
     var targetPID: pid_t? { scWindow.owningApplication.map { pid_t($0.processID) } }
+    var appName: String { scWindow.owningApplication?.applicationName ?? "?" }
+    var bundleID: String? { scWindow.owningApplication?.bundleIdentifier }
+
+    // AX title is live; SCWindow.title is a snapshot from pin time
+    var liveTitle: String {
+        var ref: CFTypeRef?
+        if let w = axWin, AXUIElementCopyAttributeValue(w, kAXTitleAttribute as CFString, &ref) == .success,
+           let t = ref as? String, !t.isEmpty { return t }
+        return scWindow.title.flatMap { $0.isEmpty ? nil : $0 } ?? appName
+    }
 
     func setPassThrough(_ on: Bool) { panel.ignoresMouseEvents = on }
 
-    private func focusRealWindow() {
+    func focusRealWindow() {
         guard let pid = targetPID, let app = NSRunningApplication(processIdentifier: pid) else { return }
         app.activate()
         if let w = axWin { AXUIElementPerformAction(w, kAXRaiseAction as CFString) }
@@ -299,7 +321,8 @@ class WindowPinManager {
     static let shared = WindowPinManager()
     var mirrors: [MirrorPanel] = []
 
-    func pinFrontmost() {
+    // ⌥P toggles: pin the frontmost window, or unpin it if already pinned
+    func togglePinFrontmost() {
         guard let frontApp = NSWorkspace.shared.frontmostApplication,
               frontApp.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
             print("[WARN] No frontmost app"); return
@@ -309,41 +332,42 @@ class WindowPinManager {
             print("[WARN] Cannot find SC window"); return
         }
 
-        // Don't pin the same window twice
+        if mirrors.contains(where: { $0.scWindow.windowID == scWindow.windowID }) {
+            unpinWindow(windowID: scWindow.windowID)
+        } else {
+            pin(scWindow)
+        }
+    }
+
+    func pin(_ scWindow: SCWindow) {
         if mirrors.contains(where: { $0.scWindow.windowID == scWindow.windowID }) {
             print("[WARN] Already pinned"); return
         }
-
         let m = MirrorPanel(scWindow: scWindow)
         mirrors.append(m)
         Task { await m.start() }
+        PinStore.shared.recordPin(m)
 
-        let name = scWindow.owningApplication?.applicationName ?? "?"
-        print("[OK] 📌 Pinned: \(name) (wid: \(scWindow.windowID)) total: \(mirrors.count)")
-        showHUD(icon: "pin", name)
+        print("[OK] 📌 Pinned: \(m.appName) (wid: \(scWindow.windowID)) total: \(mirrors.count)")
+        showHUD(icon: "pin", m.appName)
+    }
+
+    private func remove(_ m: MirrorPanel) {
+        PinStore.shared.recordUnpin(m)
+        m.stop()
     }
 
     // Unpin a specific window (called when its target app closes)
     func unpinWindow(windowID: CGWindowID) {
         guard let idx = mirrors.firstIndex(where: { $0.scWindow.windowID == windowID }) else { return }
         let m = mirrors.remove(at: idx)
-        let name = m.scWindow.owningApplication?.applicationName ?? "?"
-        m.stop()
-        print("[OK] 📍 Auto-unpinned: \(name)")
-    }
-
-    // Unpin most recently pinned
-    func unpinLast() {
-        guard let m = mirrors.last else { return }
-        let name = m.scWindow.owningApplication?.applicationName ?? "?"
-        mirrors.removeLast()
-        m.stop()
-        print("[OK] 📍 Unpinned: \(name)")
-        showHUD(icon: "pin-off", name)
+        remove(m)
+        print("[OK] 📍 Unpinned: \(m.appName)")
+        showHUD(icon: "pin-off", m.appName)
     }
 
     func unpinAll() {
-        mirrors.forEach { $0.stop() }
+        mirrors.forEach { remove($0) }
         mirrors.removeAll()
         print("[OK] 📍 Unpinned all")
         showHUD(icon: "pin-off", "All unpinned")
@@ -404,7 +428,7 @@ class WindowPinManager {
     }
 
 
-    private func showHUD(icon: String, _ text: String) {
+    func showHUD(icon: String, _ text: String) {
         let label = NSTextField(labelWithString: text)
         label.font = NSFont.systemFont(ofSize: 18, weight: .medium)
         label.textColor = .white
@@ -444,8 +468,7 @@ private var hotKeyRefs: [EventHotKeyRef?] = []
 
 private func installHotkeys() {
     let keys: [(UInt32, UInt32, UInt32)] = [
-        (0x23, UInt32(optionKey), 1),   // Option+P = pin
-        (0x20, UInt32(optionKey), 2),   // Option+U = unpin
+        (0x23, UInt32(optionKey), 1),   // Option+P = pin / unpin
     ]
     var sig: OSType = 0
     for c in "WPIN".utf8 { sig = (sig << 8) | OSType(c) }
@@ -464,8 +487,7 @@ private func installHotkeys() {
         GetEventParameter(event, UInt32(kEventParamDirectObject), UInt32(typeEventHotKeyID),
                           nil, MemoryLayout<EventHotKeyID>.size, nil, &hkID)
         DispatchQueue.main.async {
-            if hkID.id == 1 { WindowPinManager.shared.pinFrontmost() }
-            else { WindowPinManager.shared.unpinLast() }
+            if hkID.id == 1 { WindowPinManager.shared.togglePinFrontmost() }
         }
         return noErr
     }, 1, &spec, nil, nil)
@@ -473,7 +495,7 @@ private func installHotkeys() {
 
 // MARK: - App Delegate
 
-class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem?
 
     func applicationDidFinishLaunching(_ n: Notification) {
@@ -511,7 +533,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 toRemove.forEach { WindowPinManager.shared.unpinWindow(windowID: $0.scWindow.windowID) }
             }
         }
-        print("[OK] WindowPin started. ⌥P = pin, ⌥U = unpin.")
+        print("[OK] WindowPin started. ⌥P = pin / unpin.")
     }
 
     func setupMenuBar() {
@@ -522,12 +544,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             statusItem?.button?.title = "📌"
         }
         let menu = NSMenu()
-        for (title, sel) in [("⌥P  Pin frontmost window", #selector(pinFromMenu)),
-                             ("⌥U  Unpin", #selector(unpinFromMenu))] {
-            let item = NSMenuItem(title: title, action: sel, keyEquivalent: "")
-            item.target = self
-            menu.addItem(item)
-        }
+        let toggle = NSMenuItem(title: "Pin / unpin frontmost window", action: #selector(pinFromMenu), keyEquivalent: "p")
+        toggle.keyEquivalentModifierMask = .option   // renders ⌥P like Quit's ⌘Q; global hotkey is Carbon
+        toggle.target = self
+        menu.addItem(toggle)
+        menu.addItem(NSMenuItem.separator())
+        let pins = NSMenuItem(title: "Show Pins…", action: #selector(showPins), keyEquivalent: "")
+        pins.target = self
+        menu.addItem(pins)
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit WindowPin", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem?.menu = menu
@@ -535,20 +559,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     // Menu click makes WindowPin frontmost; wait for menu to close and focus to return
     @objc func pinFromMenu() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { WindowPinManager.shared.pinFrontmost() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { WindowPinManager.shared.togglePinFrontmost() }
     }
-    @objc func unpinFromMenu() { WindowPinManager.shared.unpinLast() }
-
-    func validateMenuItem(_ item: NSMenuItem) -> Bool {
-        if item.action == #selector(unpinFromMenu) { return !WindowPinManager.shared.mirrors.isEmpty }
-        return true
-    }
+    @objc func showPins() { PinsWindow.shared.show() }
 }
-
-// MARK: - Main
-setvbuf(stdout, nil, _IOLBF, 0)   // line-buffer so logs show when piped to a file
-let app = NSApplication.shared
-app.setActivationPolicy(.accessory)
-let delegate = AppDelegate()
-app.delegate = delegate
-app.run()

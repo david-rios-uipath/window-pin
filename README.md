@@ -25,12 +25,13 @@ WindowPin uses **ScreenCaptureKit** to create a floating live mirror of the targ
 
 ## Features
 
-- **⌥ + P** pins the frontmost window, **⌥ + U** unpins the most recent one. Both also available from the menu bar menu.
+- **⌥ + P** pins the frontmost window. Press it again on a pinned window to unpin. Also available from the menu bar menu.
 - Pin **multiple windows** at once
 - Mirror follows the window when moved or resized, with capture resolution matching the display it is on
 - **Click the mirror** while another app is active to bring the real window back to front
 - No focus stealing: your typing is never interrupted
 - Permission prompts only appear when a permission is actually missing
+- **Pins window** (menu bar → Show Pins…): thumbnails of pinned and recently pinned windows with title and app. Unpin, bring to front, or pin again from there
 
 ## Requirements
 
@@ -63,6 +64,13 @@ macOS ties Accessibility and Screen Recording grants to the app's code signature
 
 `build.sh` signs with `WindowPin Dev` when it exists and falls back to ad-hoc otherwise. Use a different identity with `SIGN_IDENTITY="My Cert" ./build.sh`.
 
+If you change the signing identity later, macOS keeps the old grant and re-prompts on every launch while System Settings still shows WindowPin enabled. Clear it once:
+
+```bash
+tccutil reset Accessibility com.davidrios.windowpin
+tccutil reset ScreenCapture com.davidrios.windowpin
+```
+
 ### Launch at login
 
 System Settings → General → Login Items → **+** → `/Applications/WindowPin.app`.
@@ -73,7 +81,7 @@ System Settings → General → Login Items → **+** → `/Applications/WindowP
 2. Press **⌥ + P**. A floating mirror appears and a short toast confirms the pin
 3. Switch to other apps. The mirror stays visible
 4. Click the mirror to jump back to the real window
-5. Press **⌥ + U** to unpin (repeat for multiple pinned windows)
+5. Press **⌥ + P** again on the pinned window to unpin it
 
 ## Known Limitations
 
@@ -86,7 +94,7 @@ System Settings → General → Login Items → **+** → `/Applications/WindowP
 
 ## Architecture
 
-Single file, no dependencies.
+Three files, no dependencies.
 
 ```
 WindowPin.swift
@@ -94,6 +102,11 @@ WindowPin.swift
 ├── MirrorPanel         — NSPanel overlay, AXObserver position sync, click-to-refocus
 ├── WindowPinManager    — Active mirrors, pin/unpin logic, HUD toast
 └── AppDelegate         — Menu bar, Carbon hotkeys, permission checks
+PinsUI.swift
+├── PinStore            — Pin history + thumbnails in ~/Library/Application Support/WindowPin
+├── PinsModel           — Pinned / recent items, 2 s thumbnail refresh while the window is open
+└── PinsView, PinCard   — SwiftUI grid hosted in an NSWindow above the mirrors
+main.swift              — App entry point
 ```
 
 Key choices:
@@ -107,7 +120,7 @@ Key choices:
 - [Mac-Window-Pin](https://github.com/iconoclas/Mac-Window-Pin) by icos. The original project this fork is based on.
 - [Topit](https://github.com/lihaoyun6/Topit). Same ScreenCaptureKit mirror approach; upstream's inspiration and a polished, signed alternative if you want an app rather than a build-it-yourself tool.
 - [AlwaysOnTop](https://github.com/AirBalloonDev/AlwaysOnTop). Hotkey and window manager patterns.
-- [Lucide](https://lucide.dev). The `pin`, `pin-off`, and `grid-2x2` icons used in the menu bar, HUD toasts, and app icon. ISC license.
+- [Lucide](https://lucide.dev). The `pin`, `pin-off`, `bring-to-front`, and `grid-2x2` icons used in the menu bar, HUD toasts, Pins window, and app icon. ISC license.
 
 ## License
 
