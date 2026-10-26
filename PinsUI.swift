@@ -260,11 +260,13 @@ struct PinCard: View {
                     Image(systemName: "macwindow").font(.largeTitle).foregroundStyle(.tertiary)
                 }
                 if hover {
+                    Color.black.opacity(0.4)   // dim thumbnail so the bordered button reads on light windows
                     VStack(spacing: 6) {
                         ForEach(actions) { $0.button }
                     }
                     .controlSize(.small)
                     .fixedSize()
+                    .environment(\.colorScheme, .dark)   // bordered button: white text on dark glass regardless of app appearance
                 }
             }
             .aspectRatio(16/10, contentMode: .fit)
