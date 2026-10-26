@@ -187,11 +187,11 @@ struct PinsView: View {
                         .frame(maxWidth: .infinity, minHeight: 160)
                 }
                 section("Pinned", model.pinned) { item in
-                    PinCard(item: item, primary: ("Bring to front", { model.focus(item) }),
-                            secondary: ("Unpin", { model.unpin(item) }))
+                    PinCard(item: item, primary: CardAction("Bring to front") { model.focus(item) },
+                            secondary: CardAction("Unpin", icon: "pin-off") { model.unpin(item) })
                 }
                 section("Recently pinned", model.recent) { item in
-                    PinCard(item: item, primary: ("Pin again", { model.repin(item) }), secondary: nil)
+                    PinCard(item: item, primary: CardAction("Pin", icon: "pin") { model.repin(item) }, secondary: nil)
                 }
             }
             .padding(16)
@@ -213,10 +213,24 @@ struct PinsView: View {
     }
 }
 
+struct CardAction {
+    let title: String
+    var icon: String? = nil   // lucide svg name
+    let run: () -> Void
+    init(_ title: String, icon: String? = nil, run: @escaping () -> Void) { self.title = title; self.icon = icon; self.run = run }
+
+    var label: some View {
+        HStack(spacing: 4) {
+            if let i = icon, let img = lucideIcon(i, size: 12) { Image(nsImage: img) }
+            Text(title)
+        }
+    }
+}
+
 struct PinCard: View {
     let item: PinItem
-    let primary: (String, () -> Void)
-    let secondary: (String, () -> Void)?
+    let primary: CardAction
+    let secondary: CardAction?
     @State private var hover = false
 
     var body: some View {
@@ -230,8 +244,8 @@ struct PinCard: View {
                 }
                 if hover {
                     HStack(spacing: 8) {
-                        Button(primary.0, action: primary.1)
-                        if let s = secondary { Button(s.0, action: s.1) }
+                        Button(action: primary.run) { primary.label }
+                        if let s = secondary { Button(action: s.run) { s.label } }
                     }
                     .buttonStyle(.borderedProminent).controlSize(.small)
                 }
@@ -250,10 +264,10 @@ struct PinCard: View {
         }
         .contentShape(Rectangle())   // whole card is the hover/click target, including gaps
         .onHover { hover = $0 }
-        .onTapGesture(perform: primary.1)
+        .onTapGesture(perform: primary.run)
         .contextMenu {
-            Button(primary.0, action: primary.1)
-            if let s = secondary { Button(s.0, action: s.1) }
+            Button(action: primary.run) { primary.label }
+            if let s = secondary { Button(action: s.run) { s.label } }
         }
     }
 }
