@@ -142,8 +142,7 @@ class MirrorPanel {
         panel.contentView = view
 
         capture.onError = { [weak self] in
-            guard let self = self else { return }
-            self.stop()
+            guard let self = self, self.panel.isVisible else { return }   // hidden: checkAlive restarts later
             WindowPinManager.shared.unpinWindow(windowID: self.scWindow.windowID)
         }
     }
@@ -269,10 +268,23 @@ class MirrorPanel {
     }
 
     // Low-frequency check just to detect window closed
+    // Closed = AX element gone. Off the window server but AX alive = hidden tab / ⌘H:
+    // hide the mirror and bring it back (restarting capture if needed) when the window returns.
     private func checkAlive() {
-        let exists = CGWindowListCopyWindowInfo([.optionIncludingWindow], scWindow.windowID) as? [[String: Any]]
-        if exists?.isEmpty ?? true {
-            WindowPinManager.shared.unpinWindow(windowID: scWindow.windowID)
+        if let w = axWin {
+            var ref: CFTypeRef?
+            if AXUIElementCopyAttributeValue(w, kAXRoleAttribute as CFString, &ref) == .invalidUIElement {
+                WindowPinManager.shared.unpinWindow(windowID: scWindow.windowID); return
+            }
+        }
+        let onServer = !((CGWindowListCopyWindowInfo([.optionIncludingWindow], scWindow.windowID) as? [[String: Any]])?.isEmpty ?? true)
+        if !onServer {
+            if axWin == nil { WindowPinManager.shared.unpinWindow(windowID: scWindow.windowID); return }
+            if panel.isVisible { panel.orderOut(nil) }
+        } else if !panel.isVisible {
+            syncFrame()
+            panel.orderFront(nil)
+            if !capture.capturing { Task { try? await capture.startCapture(window: scWindow) } }
         }
     }
 
