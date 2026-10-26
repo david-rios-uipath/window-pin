@@ -114,6 +114,10 @@ wintop.swift
 - [Topit](https://github.com/lihaoyun6/Topit) — ScreenCaptureKit mirror approach
 - [AlwaysOnTop](https://github.com/AirBalloonDev/AlwaysOnTop) — hotkey and window manager patterns
 
+## Similar Projects
+
+- [Topit](https://github.com/lihaoyun6/Topit) — mature, App Store-quality window pinner using the same ScreenCaptureKit mirror approach. If you want a polished, signed app rather than a build-it-yourself tool, start there.
+
 ## License
 
 MIT — see [LICENSE](./LICENSE). Original work © icos (iconoclas); modifications © David Rios.
